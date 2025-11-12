@@ -4,29 +4,73 @@ import random
 import json
 import os
 from PIL import Image, ImageTk, ImageDraw
+import pygame
 
 # ==========================================
 # Chemins absolus
 # ==========================================
 dossier_script = os.path.dirname(os.path.abspath(__file__))
 dossier_images = os.path.join(dossier_script, "images")
+dossier_sons = os.path.join(dossier_script, "sons")
 FICHIER_SOLDE = os.path.join(dossier_script, "solde.json")
+
+# ==========================================
+# Initialisation du son
+# ==========================================
+try:
+    pygame.mixer.init()
+except Exception as e:
+    print(f"Attention : impossible d'initialiser le son : {e}")
+
+SON_VICTOIRE = os.path.join(dossier_sons, "victoire.wav")
+SON_DEFAITE = os.path.join(dossier_sons, "defaite.wav")
+SON_EGALITE = os.path.join(dossier_sons, "egalite.wav")
+SON_CLAP = os.path.join(dossier_sons, "clap.wav")
+SON_FOND = os.path.join(dossier_sons, "fond.mp3")
+SON_START = os.path.join(dossier_sons, "start.wav")
+SON_DISTRIB = os.path.join(dossier_sons, "card_distrib.wav")
+
+def jouer_son(fichier):
+    if not os.path.exists(fichier):
+        # print(f"Fichier son introuvable : {fichier}")
+        return
+    try:
+        snd = pygame.mixer.Sound(fichier)
+        snd.play()
+    except Exception as e:
+        print(f"Erreur lecture son : {e}")
+
+def jouer_musique_fond():
+    if not os.path.exists(SON_FOND):
+        return
+    try:
+        pygame.mixer.music.load(SON_FOND)
+        pygame.mixer.music.set_volume(0.45)
+        pygame.mixer.music.play(-1)  # boucle infinie
+    except Exception as e:
+        print(f"Erreur musique fond : {e}")
 
 # ==========================================
 # Sauvegarde des soldes
 # ==========================================
 def charger_solde():
     if os.path.exists(FICHIER_SOLDE):
-        with open(FICHIER_SOLDE, "r") as f:
-            data = json.load(f)
-        return data.get("joueur", 100), data.get("luigi", 100)
+        try:
+            with open(FICHIER_SOLDE, "r") as f:
+                data = json.load(f)
+            return data.get("joueur", 100), data.get("luigi", 100)
+        except Exception:
+            return 100, 100
     else:
         return 100, 100
 
 def sauvegarder_solde(solde_joueur, solde_luigi):
     data = {"joueur": solde_joueur, "luigi": solde_luigi}
-    with open(FICHIER_SOLDE, "w") as f:
-        json.dump(data, f)
+    try:
+        with open(FICHIER_SOLDE, "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        print(f"Impossible de sauvegarder le solde : {e}")
 
 # ==========================================
 # Logique du jeu
@@ -120,6 +164,7 @@ class PartiePoker:
         for _ in range(5):
             self.joueur.main.ajouter(self.jeu.piocher())
             self.luigi.main.ajouter(self.jeu.piocher())
+            jouer_son(SON_DISTRIB)
 
     def echanger_cartes(self, indices):
         for i in indices:
@@ -128,72 +173,69 @@ class PartiePoker:
     def tour_luigi(self):
         score, type_main, ordre = self.luigi.main.evaluer_main()
         cartes_a_echanger = []
-
         if score < 4:
             cartes_a_echanger = sorted(range(5), key=lambda i: self.luigi.main.cartes[i].valeur_num())[:3]
-
         for i in cartes_a_echanger:
             self.luigi.main.cartes[i] = self.jeu.piocher()
 
     def comparer(self, mise):
         s_j, t_j, v_j = self.joueur.main.evaluer_main()
         s_l, t_l, v_l = self.luigi.main.evaluer_main()
-
         if s_j > s_l or (s_j == s_l and v_j > v_l):
             self.joueur.recevoir_gain(mise)
+            jouer_son(SON_VICTOIRE)
+            jouer_son(SON_CLAP)
             return f"🎉 Tu gagnes ! ({t_j} contre {t_l})"
         elif s_j < s_l or (s_j == s_l and v_j < v_l):
             self.joueur.solde -= mise
             self.luigi.recevoir_gain(mise)
+            jouer_son(SON_DEFAITE)
             return f"😬 Luigi gagne... ({t_l} contre {t_j})"
         else:
+            jouer_son(SON_EGALITE)
             return f"🤝 Égalité parfaite ! ({t_j})"
 
 # ==========================================
 # Bouton arrondi adaptatif
 # ==========================================
 def bouton_arrondi(parent, texte, command, hauteur=40, couleur="#FF5555", couleur_hover="#FF7777", largeur=None):
-    # largeur minimale ou proportionnelle au texte
     if largeur is None:
         largeur = max(150, len(texte)*12)
-
     canvas = tk.Canvas(parent, width=largeur, height=hauteur, bg=parent["bg"], highlightthickness=0)
-
-    radius = 8  # arrondi plus subtil
+    radius = 8
     x0, y0, x1, y1 = 2, 2, largeur-2, hauteur-2
-    canvas.create_arc(x0, y0, x0+radius*2, y0+radius*2, start=90, extent=90, fill=couleur, outline=couleur)
-    canvas.create_arc(x1-radius*2, y0, x1, y0+radius*2, start=0, extent=90, fill=couleur, outline=couleur)
-    canvas.create_arc(x0, y1-radius*2, x0+radius*2, y1, start=180, extent=90, fill=couleur, outline=couleur)
-    canvas.create_arc(x1-radius*2, y1-radius*2, x1, y1, start=270, extent=90, fill=couleur, outline=couleur)
-    canvas.create_rectangle(x0+radius, y0, x1-radius, y1, fill=couleur, outline=couleur)
-    canvas.create_rectangle(x0, y0+radius, x1, y1-radius, fill=couleur, outline=couleur)
-
+    # draw rounded rect approximation by rectangle here (kept simple)
+    canvas.create_rectangle(x0, y0, x1, y1, fill=couleur, outline=couleur, width=0)
     text_id = canvas.create_text(largeur/2, hauteur/2, text=texte, fill="white", font=("Consolas", 14, "bold"))
-
     def on_enter(e):
         canvas.itemconfig("all", fill=couleur_hover)
-        canvas.itemconfig(text_id, fill="white")
     def on_leave(e):
         canvas.itemconfig("all", fill=couleur)
-        canvas.itemconfig(text_id, fill="white")
-
     canvas.bind("<Button-1>", lambda e: command())
     canvas.bind("<Enter>", on_enter)
     canvas.bind("<Leave>", on_leave)
-    canvas.pack(pady=5)
     return canvas
 
-
 # ==========================================
-# Poker UI modernisée avec cartes arrondies
+# Poker UI modernisée
 # ==========================================
 class PokerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Poker Luigi 🎲")
-        self.root.geometry("1200x815")
+        # change path to your ico file
+        ico_path = os.path.join(dossier_script, "images", "ico.ico")
+        if os.path.exists(ico_path):
+            try:
+                self.root.iconbitmap(ico_path)
+            except Exception:
+                pass
+        self.root.geometry("1200x850")
         self.root.config(bg="#1a1a1a")
         self.mario_font = ("Consolas", 16, "bold")
+        self.radius = 12
+
+        jouer_musique_fond()
 
         solde_joueur, solde_luigi = charger_solde()
         self.partie = PartiePoker(solde_joueur, solde_luigi)
@@ -202,39 +244,43 @@ class PokerApp:
         self.mise = 10
         self.mise_max = 30
 
-        # Frames
+        # frames pour les zones de cartes
         self.frame_luigi = tk.Frame(root, bg="#222222", padx=15, pady=15, relief="ridge", bd=2)
         self.frame_joueur = tk.Frame(root, bg="#222222", padx=15, pady=15, relief="ridge", bd=2)
         self.frame_luigi.pack(pady=20, fill="x", padx=20)
         self.frame_joueur.pack(pady=20, fill="x", padx=20)
 
-        # Images cartes arrondies via Pillow
+        # chargement images
         valeurs_images = {
             '7': '7.png', '8': '8.png', '9': '9.png', '10': '10.png',
             'Valet': 'champi.png', 'Dame': 'fleur.png', 'Roi': 'mario.png', 'As': 'etoile.png'
         }
-        self.images_cartes = {}
-        radius = 12  # coins légèrement arrondis
-
+        self.images_cartes_joueur = {}
+        self.images_cartes_luigi = {}
         for valeur, fichier in valeurs_images.items():
             chemin = os.path.join(dossier_images, fichier)
-            if not os.path.exists(chemin):
-                raise FileNotFoundError(f"Image introuvable : {chemin}")
-            img = Image.open(chemin).convert("RGBA")
-            mask = Image.new("L", img.size, 0)
-            draw = ImageDraw.Draw(mask)
-            draw.rounded_rectangle((0,0,img.width,img.height), radius=radius, fill=255)
-            img.putalpha(mask)
-            self.images_cartes[valeur] = ImageTk.PhotoImage(img)
+            if os.path.exists(chemin):
+                img = Image.open(chemin).convert("RGBA")
+                mask = Image.new("L", img.size, 0)
+                draw = ImageDraw.Draw(mask)
+                draw.rounded_rectangle((0,0,img.width,img.height), radius=self.radius, fill=255)
+                img.putalpha(mask)
+                self.images_cartes_joueur[valeur] = ImageTk.PhotoImage(img)
+                self.images_cartes_luigi[valeur] = ImageTk.PhotoImage(img)
+            else:
+                self.images_cartes_joueur[valeur] = None
+                self.images_cartes_luigi[valeur] = None
 
-        # Dos cartes arrondi
         chemin_dos = os.path.join(dossier_images, "dos.png")
-        img_dos = Image.open(chemin_dos).convert("RGBA")
-        mask = Image.new("L", img_dos.size, 0)
-        draw = ImageDraw.Draw(mask)
-        draw.rounded_rectangle((0,0,img_dos.width,img_dos.height), radius=radius, fill=255)
-        img_dos.putalpha(mask)
-        self.image_dos = ImageTk.PhotoImage(img_dos)
+        if os.path.exists(chemin_dos):
+            img_dos = Image.open(chemin_dos).convert("RGBA")
+            mask = Image.new("L", img_dos.size, 0)
+            draw = ImageDraw.Draw(mask)
+            draw.rounded_rectangle((0,0,img_dos.width,img_dos.height), radius=self.radius, fill=255)
+            img_dos.putalpha(mask)
+            self.image_dos = ImageTk.PhotoImage(img_dos)
+        else:
+            self.image_dos = None
 
         # Luigi
         self.label_luigi = tk.Label(self.frame_luigi, text="Cartes de Luigi :", fg="#FF5555", bg="#222222", font=self.mario_font)
@@ -251,28 +297,38 @@ class PokerApp:
         self.label_joueur.pack()
         self.frame_cartes = tk.Frame(self.frame_joueur, bg="#222222")
         self.frame_cartes.pack()
-        self.boutons_cartes = []
         self.selection = set()
         self.afficher_cartes()
 
-        # Boutons arrondis adaptatifs
-        self.bouton_echanger = bouton_arrondi(root, "Échanger les cartes", self.echanger, couleur="#FF5555", couleur_hover="#FF7777")
-        self.bouton_valider = bouton_arrondi(root, "Valider la main", self.valider, couleur="#5555FF", couleur_hover="#7777FF")
+        # ======= frame centralisée actions + solde =======
+        self.frame_actions = tk.Frame(root, bg="#1a1a1a")
+        self.frame_actions.pack(pady=15)
 
-        # Résultat et solde
+        # boutons - on récupère le canvas et on le pack
+        self.bouton_echanger = bouton_arrondi(self.frame_actions, "Échanger les cartes", self.echanger, couleur="#FF5555", couleur_hover="#FF7777")
+        self.bouton_echanger.pack(side="left", padx=10)
+
+        self.bouton_valider = bouton_arrondi(self.frame_actions, "Valider la main", self.valider, couleur="#5555FF", couleur_hover="#7777FF")
+        self.bouton_valider.pack(side="left", padx=10)
+
+        # label solde sur la même ligne, placé à droite
+        self.label_solde = tk.Label(self.frame_actions, text=f"💰 Ton solde : {self.partie.joueur.solde} | Luigi : {self.partie.luigi.solde}",
+                                    fg="#FFFF55", bg="#1a1a1a", font=self.mario_font)
+        self.label_solde.pack(side="left", padx=30)
+
+        # résultat sous la ligne des actions
         self.label_resultat = tk.Label(root, text="", fg="white", bg="#1a1a1a", font=self.mario_font)
         self.label_resultat.pack(pady=15)
-        self.label_solde = tk.Label(root, text=f"💰 Ton solde : {self.partie.joueur.solde} | Luigi : {self.partie.luigi.solde}",
-                                    fg="#FFFF55", bg="#1a1a1a", font=self.mario_font)
-        self.label_solde.pack()
 
-        # Frame mise
+        # mise
         self.frame_mise = tk.Frame(root, bg="#1a1a1a")
         self.frame_mise.pack(pady=10)
         self.label_mise = tk.Label(self.frame_mise, text=f"💰 Mise : {self.mise}", fg="#55FFFF", bg="#1a1a1a", font=self.mario_font)
         self.label_mise.pack(side="left", padx=5)
-        self.bouton_plus = bouton_arrondi(self.frame_mise, "+", self.augmenter_mise, largeur=40, couleur="#AAAAAA", couleur_hover="#CCCCCC")
-        self.bouton_moins = bouton_arrondi(self.frame_mise, "-", self.diminuer_mise, largeur=40, couleur="#AAAAAA", couleur_hover="#CCCCCC")
+        self.bouton_plus = bouton_arrondi(self.frame_mise, "+", self.augmenter_mise, largeur=40, couleur="#E4D90A", couleur_hover="#D3CA26")
+        self.bouton_plus.pack(side="left", padx=5)
+        self.bouton_moins = bouton_arrondi(self.frame_mise, "-", self.diminuer_mise, largeur=40, couleur="#E4D90A", couleur_hover="#D3CA26")
+        self.bouton_moins.pack(side="left", padx=5)
 
     # ==========================================
     # Affichage cartes joueur
@@ -281,13 +337,18 @@ class PokerApp:
         for widget in self.frame_cartes.winfo_children():
             widget.destroy()
         self.boutons_cartes = []
+        # s'assurer d'avoir des cartes (au cas où)
+        while len(self.partie.joueur.main.cartes) < 5:
+            self.partie.joueur.main.ajouter(self.partie.jeu.piocher())
+
         for i, c in enumerate(self.partie.joueur.main.cartes):
-            img = self.images_cartes.get(c.valeur)
-            btn = tk.Button(self.frame_cartes, image=img, width=80, height=120, bg="#333333", activebackground="#555555",
-                            relief="flat", command=lambda i=i: self.toggle_selection(i))
+            img = self.images_cartes_joueur.get(c.valeur)
+            couleur_contour = "#FF2222" if i in self.selection else "#555"
+            btn = tk.Label(self.frame_cartes, image=img, bg="#333333", bd=4,
+                           relief="solid", highlightthickness=4, highlightbackground=couleur_contour)
             btn.image = img
             btn.grid(row=0, column=i, padx=10, pady=5)
-            btn.config(borderwidth=2, highlightthickness=2, highlightbackground="#555")
+            btn.bind("<Button-1>", lambda e, i=i: self.toggle_selection(i))
             self.boutons_cartes.append(btn)
 
     def toggle_selection(self, i):
@@ -295,10 +356,9 @@ class PokerApp:
             return
         if i in self.selection:
             self.selection.remove(i)
-            self.boutons_cartes[i].config(bg="#333333")
         else:
             self.selection.add(i)
-            self.boutons_cartes[i].config(bg="#FF2222")
+        self.afficher_cartes()
 
     # ==========================================
     # Échange et validation
@@ -314,7 +374,7 @@ class PokerApp:
         self.selection.clear()
         self.afficher_cartes()
         self.echange_effectue = True
-        messagebox.showinfo("Info", "Cartes échangées ! Tu ne peux plus échanger.")
+        messagebox.showinfo("Info", "Cartes échangées !")
 
     def valider(self):
         self.partie.tour_luigi()
@@ -322,17 +382,18 @@ class PokerApp:
         self.label_resultat.config(text=resultat)
         self.label_solde.config(text=f"💰 Ton solde : {self.partie.joueur.solde} | Luigi : {self.partie.luigi.solde}")
 
-        # Affichage cartes Luigi
+        # afficher cartes de Luigi
         for widget in self.frame_luigi_cartes.winfo_children():
             widget.destroy()
         for i, c in enumerate(self.partie.luigi.main.cartes):
-            img = self.images_cartes.get(c.valeur)
+            img = self.images_cartes_luigi.get(c.valeur)
             lbl = tk.Label(self.frame_luigi_cartes, image=img, bg="#222222")
             lbl.image = img
             lbl.grid(row=0, column=i, padx=5)
 
         sauvegarder_solde(self.partie.joueur.solde, self.partie.luigi.solde)
-        self.root.after(2000, self.nouvelle_manche)
+        # nouvelle manche après délai
+        self.root.after(5000, self.nouvelle_manche)
 
     def nouvelle_manche(self):
         solde_joueur, solde_luigi = self.partie.joueur.solde, self.partie.luigi.solde
@@ -372,5 +433,13 @@ class PokerApp:
 # ==========================================
 if __name__ == "__main__":
     root = tk.Tk()
+    # icône (modifie le chemin si nécessaire)
+    ico_path = os.path.join(dossier_script, "images", "ico.ico")
+    if os.path.exists(ico_path):
+        try:
+            root.iconbitmap(ico_path)
+        except Exception:
+            pass
     app = PokerApp(root)
+    jouer_son(SON_START)
     root.mainloop()
