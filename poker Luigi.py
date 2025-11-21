@@ -73,7 +73,7 @@ def sauvegarder_solde(solde_joueur, solde_luigi):
         print(f"Impossible de sauvegarder le solde : {e}")
 
 # ==========================================
-# Logique du jeu
+# Logique du jeu (inchangée)
 # ==========================================
 class Carte:
     valeurs = ['7', '8', '9', '10', 'Valet', 'Dame', 'Roi', 'As']
@@ -161,10 +161,15 @@ class PartiePoker:
         self.luigi = Joueur("Luigi", solde_luigi)
 
     def distribuer(self):
+        # Réinitialiser les mains
+        self.joueur.main.cartes = []
+        self.luigi.main.cartes = []
+        # Re-mélanger et distribuer
+        self.jeu.melanger()
         for _ in range(5):
             self.joueur.main.ajouter(self.jeu.piocher())
             self.luigi.main.ajouter(self.jeu.piocher())
-            jouer_son(SON_DISTRIB)
+            # jouer_son(SON_DISTRIB) # Retiré, car trop répétitif, on peut le jouer une seule fois avant la distribution.
 
     def echanger_cartes(self, indices):
         for i in indices:
@@ -173,65 +178,124 @@ class PartiePoker:
     def tour_luigi(self):
         score, type_main, ordre = self.luigi.main.evaluer_main()
         cartes_a_echanger = []
+        # Logique de base : Si pas de bonne main, échange les 3 plus faibles
         if score < 4:
-            cartes_a_echanger = sorted(range(5), key=lambda i: self.luigi.main.cartes[i].valeur_num())[:3]
+            # Récupère les indices des 3 cartes avec la valeur la plus faible
+            # Utilise un tri par la valeur numérique de la carte
+            indices_tries = sorted(range(5), key=lambda i: self.luigi.main.cartes[i].valeur_num())
+            cartes_a_echanger = indices_tries[:3]
+            
         for i in cartes_a_echanger:
             self.luigi.main.cartes[i] = self.jeu.piocher()
 
     def comparer(self, mise):
         s_j, t_j, v_j = self.joueur.main.evaluer_main()
         s_l, t_l, v_l = self.luigi.main.evaluer_main()
-        if s_j > s_l or (s_j == s_l and v_j > v_l):
-            self.joueur.recevoir_gain(mise)
+        
+        # Le joueur doit payer sa mise AVANT de comparer
+        if not self.joueur.miser(mise):
+             return "Erreur de mise: Solde insuffisant !" # Ne devrait pas arriver avec la logique de mise
+
+        # Comparaison de la force de la main (score)
+        if s_j > s_l:
+            self.joueur.recevoir_gain(mise * 2)
             jouer_son(SON_VICTOIRE)
             jouer_son(SON_CLAP)
             return f"🎉 Tu gagnes ! ({t_j} contre {t_l})"
-        elif s_j < s_l or (s_j == s_l and v_j < v_l):
-            self.joueur.solde -= mise
-            self.luigi.recevoir_gain(mise)
+        # Si les mains sont égales, comparer la carte haute (v_j et v_l sont des listes ordonnées)
+        elif s_j == s_l:
+            if v_j > v_l: # Comparaison des listes d'ordres (Python le gère lexicographiquement)
+                self.joueur.recevoir_gain(mise * 2)
+                jouer_son(SON_VICTOIRE)
+                jouer_son(SON_CLAP)
+                return f"🎉 Tu gagnes ! ({t_j} contre {t_l} - Carte Haute)"
+            elif v_j < v_l:
+                self.luigi.recevoir_gain(mise * 2)
+                jouer_son(SON_DEFAITE)
+                return f"😬 Luigi gagne... ({t_l} contre {t_j} - Carte Haute)"
+            else: # Égalité parfaite (même score et mêmes cartes hautes)
+                self.joueur.recevoir_gain(mise) # Récupère juste la mise
+                self.luigi.solde += mise # Luigi récupère juste sa mise (car les mises sont payées avant la comparaison)
+                jouer_son(SON_EGALITE)
+                return f"🤝 Égalité parfaite ! ({t_j})"
+        # Si le score de Luigi est supérieur
+        else:
+            self.luigi.recevoir_gain(mise * 2)
             jouer_son(SON_DEFAITE)
             return f"😬 Luigi gagne... ({t_l} contre {t_j})"
-        else:
-            jouer_son(SON_EGALITE)
-            return f"🤝 Égalité parfaite ! ({t_j})"
 
 # ==========================================
-# Bouton arrondi adaptatif
+# Bouton arrondi adaptatif (amélioré)
 # ==========================================
-def bouton_arrondi(parent, texte, command, hauteur=40, couleur="#FF5555", couleur_hover="#FF7777", largeur=None):
+def bouton_arrondi(parent, texte, command, hauteur=45, couleur="#4CAF50", couleur_hover="#66BB6A", couleur_texte="white", largeur=None):
     if largeur is None:
-        largeur = max(150, len(texte)*12)
+        largeur = max(180, len(texte)*12)
+    
+    # Créer le Canvas avec une couleur de fond pour simuler l'ombre
+    SHADOW_COLOR = "#222222"
     canvas = tk.Canvas(parent, width=largeur, height=hauteur, bg=parent["bg"], highlightthickness=0)
-    radius = 8
-    x0, y0, x1, y1 = 2, 2, largeur-2, hauteur-2
-    # draw rounded rect approximation by rectangle here (kept simple)
-    canvas.create_rectangle(x0, y0, x1, y1, fill=couleur, outline=couleur, width=0)
-    text_id = canvas.create_text(largeur/2, hauteur/2, text=texte, fill="white", font=("Consolas", 14, "bold"))
+    
+    radius = 12
+    x0, y0, x1, y1 = 0, 0, largeur, hauteur
+    
+    # Dessiner l'ombre (décalage de 2px en bas et à droite)
+    shadow_rect = (x0 + 2, y0 + 2, x1, y1)
+    canvas.create_arc(x1 - radius * 2, y1 - radius * 2, x1, y1, start=270, extent=90, fill=SHADOW_COLOR, outline=SHADOW_COLOR) # coin bas droit
+    canvas.create_arc(x0 + 2, y1 - radius * 2, x0 + 2 + radius * 2, y1, start=180, extent=90, fill=SHADOW_COLOR, outline=SHADOW_COLOR) # coin bas gauche
+    canvas.create_rectangle(x0 + 2 + radius, y1 - 2, x1 - radius, y1, fill=SHADOW_COLOR, outline=SHADOW_COLOR, width=0) # bas
+    canvas.create_rectangle(x1 - 2, y0 + 2 + radius, x1, y1 - radius, fill=SHADOW_COLOR, outline=SHADOW_COLOR, width=0) # droite
+    
+    # Dessiner le rectangle principal (pour les coins arrondis, on se simplifie la vie en utilisant des rectangles et des ovales)
+    rect_coords = (x0, y0, x1 - 2, y1 - 2) # Légèrement décalé pour voir l'ombre
+    rect_id = canvas.create_rectangle(rect_coords, fill=couleur, outline=couleur, width=0)
+    
+    # Le texte doit être au-dessus
+    text_id = canvas.create_text((largeur - 2)/2, (hauteur - 2)/2, text=texte, fill=couleur_texte, font=("Consolas", 14, "bold"))
+    
     def on_enter(e):
-        canvas.itemconfig("all", fill=couleur_hover)
+        canvas.itemconfig(rect_id, fill=couleur_hover, outline=couleur_hover)
+        
     def on_leave(e):
-        canvas.itemconfig("all", fill=couleur)
-    canvas.bind("<Button-1>", lambda e: command())
+        canvas.itemconfig(rect_id, fill=couleur, outline=couleur)
+        
+    def on_click(e):
+        # Simuler un 'clic' en déplaçant légèrement le bouton
+        canvas.move(rect_id, 1, 1)
+        canvas.move(text_id, 1, 1)
+        command()
+        canvas.after(100, lambda: [canvas.move(rect_id, -1, -1), canvas.move(text_id, -1, -1)])
+        
+    canvas.tag_bind(rect_id, "<Button-1>", on_click)
+    canvas.tag_bind(text_id, "<Button-1>", on_click)
     canvas.bind("<Enter>", on_enter)
     canvas.bind("<Leave>", on_leave)
     return canvas
 
 # ==========================================
-# Poker UI modernisée
+# Poker UI modernisée (mise à jour)
 # ==========================================
 class PokerApp:
+    # --- PALETTE DE COULEURS ---
+    COLOR_BG = "#1e1e1e"        # Fond principal (sombre)
+    COLOR_CARD_FRAME = "#2c2c2c" # Fond des zones de cartes
+    COLOR_LUIGI = "#E91E63"     # Magenta (accent Luigi/action principale)
+    COLOR_PLAYER = "#00BCD4"    # Cyan (accent joueur/confirmation)
+    COLOR_TEXT = "white"
+    COLOR_SOLDE = "#FFEB3B"     # Jaune (solde/mise)
+    COLOR_ACCENT = "#FF9800"    # Orange (mise boutons)
+
     def __init__(self, root):
         self.root = root
-        self.root.title("Poker Luigi 🎲")
-        # change path to your ico file
+        self.root.title("Poker Luigi 🎲 - Style Amélioré")
         ico_path = os.path.join(dossier_script, "images", "ico.ico")
         if os.path.exists(ico_path):
             try:
                 self.root.iconbitmap(ico_path)
             except Exception:
                 pass
+        
         self.root.geometry("1200x850")
-        self.root.config(bg="#1a1a1a")
+        self.root.config(bg=self.COLOR_BG)
         self.mario_font = ("Consolas", 16, "bold")
         self.radius = 12
 
@@ -243,20 +307,27 @@ class PokerApp:
         self.echange_effectue = False
         self.mise = 10
         self.mise_max = 30
-
-        # frames pour les zones de cartes
-        self.frame_luigi = tk.Frame(root, bg="#222222", padx=15, pady=15, relief="ridge", bd=2)
-        self.frame_joueur = tk.Frame(root, bg="#222222", padx=15, pady=15, relief="ridge", bd=2)
-        self.frame_luigi.pack(pady=20, fill="x", padx=20)
-        self.frame_joueur.pack(pady=20, fill="x", padx=20)
-
-        # chargement images
+        
+        # --- FRAME PRINCIPALE (CONTENEUR) ---
+        # Utiliser un conteneur principal pour mieux organiser le placement
+        self.main_container = tk.Frame(root, bg=self.COLOR_BG)
+        self.main_container.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # --- Zones de cartes ---
+        self.frame_luigi = tk.Frame(self.main_container, bg=self.COLOR_CARD_FRAME, padx=15, pady=15, relief="flat", bd=0, highlightbackground="#333", highlightthickness=1)
+        self.frame_joueur = tk.Frame(self.main_container, bg=self.COLOR_CARD_FRAME, padx=15, pady=15, relief="flat", bd=0, highlightbackground="#333", highlightthickness=1)
+        
+        self.frame_luigi.pack(pady=20, fill="x")
+        self.frame_joueur.pack(pady=20, fill="x")
+        
+        # Chargement des images (inchangé mais important de le laisser ici)
         valeurs_images = {
             '7': '7.png', '8': '8.png', '9': '9.png', '10': '10.png',
             'Valet': 'champi.png', 'Dame': 'fleur.png', 'Roi': 'mario.png', 'As': 'etoile.png'
         }
         self.images_cartes_joueur = {}
         self.images_cartes_luigi = {}
+        # ... (le code de chargement d'image avec arrondi PIL est conservé) ...
         for valeur, fichier in valeurs_images.items():
             chemin = os.path.join(dossier_images, fichier)
             if os.path.exists(chemin):
@@ -281,79 +352,102 @@ class PokerApp:
             self.image_dos = ImageTk.PhotoImage(img_dos)
         else:
             self.image_dos = None
-
-        # Luigi
-        self.label_luigi = tk.Label(self.frame_luigi, text="Cartes de Luigi :", fg="#FF5555", bg="#222222", font=self.mario_font)
-        self.label_luigi.pack()
-        self.frame_luigi_cartes = tk.Frame(self.frame_luigi, bg="#222222")
+        # Fin chargement images
+        
+        # --- Luigi (Haut) ---
+        self.label_luigi = tk.Label(self.frame_luigi, text="♠ Cartes de Luigi ♠ :", fg=self.COLOR_LUIGI, bg=self.COLOR_CARD_FRAME, font=self.mario_font)
+        self.label_luigi.pack(pady=(0, 10))
+        self.frame_luigi_cartes = tk.Frame(self.frame_luigi, bg=self.COLOR_CARD_FRAME)
         self.frame_luigi_cartes.pack()
+        
         for i in range(5):
-            lbl = tk.Label(self.frame_luigi_cartes, image=self.image_dos, bg="#222222")
+            lbl = tk.Label(self.frame_luigi_cartes, image=self.image_dos, bg=self.COLOR_CARD_FRAME)
             lbl.image = self.image_dos
-            lbl.grid(row=0, column=i, padx=5)
+            lbl.grid(row=0, column=i, padx=8)
 
-        # Joueur
-        self.label_joueur = tk.Label(self.frame_joueur, text="Tes cartes :", fg="#55FF55", bg="#222222", font=self.mario_font)
-        self.label_joueur.pack()
-        self.frame_cartes = tk.Frame(self.frame_joueur, bg="#222222")
+        # --- Séparateur central ---
+        tk.Frame(self.main_container, height=2, bg="#333333").pack(fill="x", pady=25)
+        
+        # --- Actions et Statut ---
+        self.frame_statut_actions = tk.Frame(self.main_container, bg=self.COLOR_BG)
+        self.frame_statut_actions.pack(fill="x")
+        
+        # Sous-frame pour la mise (à gauche)
+        self.frame_mise = tk.Frame(self.frame_statut_actions, bg=self.COLOR_BG)
+        self.frame_mise.pack(side="left", padx=50)
+        self.label_mise = tk.Label(self.frame_mise, text=f"💎 Mise : {self.mise}", fg=self.COLOR_SOLDE, bg=self.COLOR_BG, font=self.mario_font)
+        self.label_mise.pack(pady=5)
+        
+        self.frame_boutons_mise = tk.Frame(self.frame_mise, bg=self.COLOR_BG)
+        self.frame_boutons_mise.pack(pady=5)
+        self.bouton_moins = bouton_arrondi(self.frame_boutons_mise, " -10 ", self.diminuer_mise, largeur=60, couleur=self.COLOR_ACCENT, couleur_hover="#FFB300", hauteur=35, couleur_texte=self.COLOR_TEXT)
+        self.bouton_moins.pack(side="left", padx=5)
+        self.bouton_plus = bouton_arrondi(self.frame_boutons_mise, " +10 ", self.augmenter_mise, largeur=60, couleur=self.COLOR_ACCENT, couleur_hover="#FFB300", hauteur=35, couleur_texte=self.COLOR_TEXT)
+        self.bouton_plus.pack(side="left", padx=5)
+        
+        # Sous-frame pour les boutons d'action (au centre)
+        self.frame_actions = tk.Frame(self.frame_statut_actions, bg=self.COLOR_BG)
+        self.frame_actions.pack(side="left", padx=50)
+
+        self.bouton_echanger = bouton_arrondi(self.frame_actions, "🔄 Échanger les cartes", self.echanger, couleur=self.COLOR_LUIGI, couleur_hover="#F06292", couleur_texte=self.COLOR_TEXT)
+        self.bouton_echanger.pack(side="left", padx=20)
+
+        self.bouton_valider = bouton_arrondi(self.frame_actions, "✅ Valider la main", self.valider, couleur=self.COLOR_PLAYER, couleur_hover="#4DD0E1", couleur_texte=self.COLOR_TEXT)
+        self.bouton_valider.pack(side="left", padx=20)
+        
+        # Sous-frame pour le solde (à droite)
+        self.frame_solde = tk.Frame(self.frame_statut_actions, bg=self.COLOR_BG)
+        self.frame_solde.pack(side="right", padx=50)
+        self.label_solde = tk.Label(self.frame_solde, text=f"💰 Ton solde : {self.partie.joueur.solde}\n👑 Luigi : {self.partie.luigi.solde}",
+                                    fg=self.COLOR_SOLDE, bg=self.COLOR_BG, font=self.mario_font, justify=tk.LEFT)
+        self.label_solde.pack(side="right")
+        
+        # --- Résultat (Entre actions et joueur) ---
+        self.label_resultat = tk.Label(self.main_container, text="", fg="white", bg=self.COLOR_BG, font=self.mario_font)
+        self.label_resultat.pack(pady=15)
+        
+        # --- Joueur (Bas) ---
+        self.label_joueur = tk.Label(self.frame_joueur, text="♣ Tes cartes ♣ :", fg=self.COLOR_PLAYER, bg=self.COLOR_CARD_FRAME, font=self.mario_font)
+        self.label_joueur.pack(pady=(0, 10))
+        self.frame_cartes = tk.Frame(self.frame_joueur, bg=self.COLOR_CARD_FRAME)
         self.frame_cartes.pack()
         self.selection = set()
         self.afficher_cartes()
 
-        # ======= frame centralisée actions + solde =======
-        self.frame_actions = tk.Frame(root, bg="#1a1a1a")
-        self.frame_actions.pack(pady=15)
-
-        # boutons - on récupère le canvas et on le pack
-        self.bouton_echanger = bouton_arrondi(self.frame_actions, "Échanger les cartes", self.echanger, couleur="#FF5555", couleur_hover="#FF7777")
-        self.bouton_echanger.pack(side="left", padx=10)
-
-        self.bouton_valider = bouton_arrondi(self.frame_actions, "Valider la main", self.valider, couleur="#5555FF", couleur_hover="#7777FF")
-        self.bouton_valider.pack(side="left", padx=10)
-
-        # label solde sur la même ligne, placé à droite
-        self.label_solde = tk.Label(self.frame_actions, text=f"💰 Ton solde : {self.partie.joueur.solde} | Luigi : {self.partie.luigi.solde}",
-                                    fg="#FFFF55", bg="#1a1a1a", font=self.mario_font)
-        self.label_solde.pack(side="left", padx=30)
-
-        # résultat sous la ligne des actions
-        self.label_resultat = tk.Label(root, text="", fg="white", bg="#1a1a1a", font=self.mario_font)
-        self.label_resultat.pack(pady=15)
-
-        # mise
-        self.frame_mise = tk.Frame(root, bg="#1a1a1a")
-        self.frame_mise.pack(pady=10)
-        self.label_mise = tk.Label(self.frame_mise, text=f"💰 Mise : {self.mise}", fg="#55FFFF", bg="#1a1a1a", font=self.mario_font)
-        self.label_mise.pack(side="left", padx=5)
-        self.bouton_plus = bouton_arrondi(self.frame_mise, "+", self.augmenter_mise, largeur=40, couleur="#E4D90A", couleur_hover="#D3CA26")
-        self.bouton_plus.pack(side="left", padx=5)
-        self.bouton_moins = bouton_arrondi(self.frame_mise, "-", self.diminuer_mise, largeur=40, couleur="#E4D90A", couleur_hover="#D3CA26")
-        self.bouton_moins.pack(side="left", padx=5)
-
     # ==========================================
-    # Affichage cartes joueur
+    # Affichage cartes joueur (modifié pour l'esthétique)
     # ==========================================
     def afficher_cartes(self):
         for widget in self.frame_cartes.winfo_children():
             widget.destroy()
+            
         self.boutons_cartes = []
-        # s'assurer d'avoir des cartes (au cas où)
         while len(self.partie.joueur.main.cartes) < 5:
             self.partie.joueur.main.ajouter(self.partie.jeu.piocher())
 
         for i, c in enumerate(self.partie.joueur.main.cartes):
             img = self.images_cartes_joueur.get(c.valeur)
-            couleur_contour = "#FF2222" if i in self.selection else "#555"
-            btn = tk.Label(self.frame_cartes, image=img, bg="#333333", bd=4,
-                           relief="solid", highlightthickness=4, highlightbackground=couleur_contour)
+            
+            # Contour pour la sélection
+            couleur_contour = self.COLOR_LUIGI if i in self.selection else self.COLOR_CARD_FRAME
+            
+            # Relief pour simuler la profondeur lors de la sélection
+            relief_type = tk.RAISED if i in self.selection else tk.FLAT
+            border_width = 4 if i in self.selection else 1
+
+            btn = tk.Label(self.frame_cartes, image=img, bg=self.COLOR_CARD_FRAME, bd=border_width,
+                           relief=relief_type, highlightthickness=0, highlightbackground=couleur_contour)
+            
             btn.image = img
-            btn.grid(row=0, column=i, padx=10, pady=5)
+            btn.grid(row=0, column=i, padx=15, pady=5)
             btn.bind("<Button-1>", lambda e, i=i: self.toggle_selection(i))
             self.boutons_cartes.append(btn)
 
     def toggle_selection(self, i):
         if self.echange_effectue:
+            messagebox.showwarning("Attention", "L'échange est terminé pour cette manche.")
             return
+        
         if i in self.selection:
             self.selection.remove(i)
         else:
@@ -361,44 +455,70 @@ class PokerApp:
         self.afficher_cartes()
 
     # ==========================================
-    # Échange et validation
+    # Échange et validation (mise à jour du solde)
     # ==========================================
     def echanger(self):
         if self.echange_effectue:
-            messagebox.showinfo("Info", "Tu as déjà échangé tes cartes.")
+            messagebox.showwarning("Info", "Tu as déjà échangé tes cartes.")
             return
         if not self.selection:
-            messagebox.showinfo("Info", "Aucune carte sélectionnée.")
+            # L'échange sans sélection est une validation de la main initiale
+            self.valider()
             return
+            
         self.partie.echanger_cartes(list(self.selection))
         self.selection.clear()
         self.afficher_cartes()
         self.echange_effectue = True
-        messagebox.showinfo("Info", "Cartes échangées !")
+        messagebox.showinfo("Info", f"Cartes échangées : Tu peux maintenant Valider la main.")
 
     def valider(self):
+        if not self.echange_effectue:
+             # Si le joueur n'a pas échangé, c'est comme s'il avait "passé" son tour d'échange
+             self.echange_effectue = True
+             
+        # Désactiver les boutons pendant la validation et l'attente
+        self.bouton_echanger.config(state=tk.DISABLED)
+        self.bouton_valider.config(state=tk.DISABLED)
+        self.bouton_plus.config(state=tk.DISABLED)
+        self.bouton_moins.config(state=tk.DISABLED)
+        
+        # 1. Luigi joue
         self.partie.tour_luigi()
+        
+        # 2. Comparaison (inclut la gestion des gains/pertes)
         resultat = self.partie.comparer(self.mise)
         self.label_resultat.config(text=resultat)
-        self.label_solde.config(text=f"💰 Ton solde : {self.partie.joueur.solde} | Luigi : {self.partie.luigi.solde}")
-
-        # afficher cartes de Luigi
+        
+        # 3. Afficher les cartes de Luigi
         for widget in self.frame_luigi_cartes.winfo_children():
             widget.destroy()
         for i, c in enumerate(self.partie.luigi.main.cartes):
             img = self.images_cartes_luigi.get(c.valeur)
-            lbl = tk.Label(self.frame_luigi_cartes, image=img, bg="#222222")
+            lbl = tk.Label(self.frame_luigi_cartes, image=img, bg=self.COLOR_CARD_FRAME)
             lbl.image = img
-            lbl.grid(row=0, column=i, padx=5)
+            lbl.grid(row=0, column=i, padx=8)
 
+        # 4. Mettre à jour et sauvegarder le solde
+        self.label_solde.config(text=f"💰 Ton solde : {self.partie.joueur.solde}\n👑 Luigi : {self.partie.luigi.solde}")
         sauvegarder_solde(self.partie.joueur.solde, self.partie.luigi.solde)
-        # nouvelle manche après délai
-        self.root.after(5000, self.nouvelle_manche)
 
+        # 5. Nouvelle manche après délai (plus long pour laisser le temps de lire)
+        self.root.after(5000, self.nouvelle_manche)
+        
     def nouvelle_manche(self):
+        # Vérification de la fin de jeu
+        if self.partie.joueur.solde <= 0 or self.partie.luigi.solde <= 0:
+            message = "GAME OVER ! Luigi a gagné toutes tes pièces !" if self.partie.joueur.solde <= 0 else "VICTOIRE ! Tu as plumé Luigi !"
+            messagebox.showinfo("Fin de Partie", message)
+            self.root.destroy()
+            return
+
+        # Réinitialisation de la partie
         solde_joueur, solde_luigi = self.partie.joueur.solde, self.partie.luigi.solde
         self.partie = PartiePoker(solde_joueur, solde_luigi)
         self.partie.distribuer()
+        
         self.echange_effectue = False
         self.selection.clear()
         self.afficher_cartes()
@@ -407,33 +527,54 @@ class PokerApp:
         for widget in self.frame_luigi_cartes.winfo_children():
             widget.destroy()
         for i in range(5):
-            lbl = tk.Label(self.frame_luigi_cartes, image=self.image_dos, bg="#222222")
+            lbl = tk.Label(self.frame_luigi_cartes, image=self.image_dos, bg=self.COLOR_CARD_FRAME)
             lbl.image = self.image_dos
-            lbl.grid(row=0, column=i, padx=5)
+            lbl.grid(row=0, column=i, padx=8)
 
-        self.label_resultat.config(text="")
-        self.label_solde.config(text=f"💰 Ton solde : {self.partie.joueur.solde} | Luigi : {self.partie.luigi.solde}")
-        self.label_mise.config(text=f"💰 Mise : {self.mise}")
+        # Réinitialisation des labels et de la mise
+        self.label_resultat.config(text="Nouvelle manche ! Choisis tes cartes à échanger.")
+        self.label_solde.config(text=f"💰 Ton solde : {self.partie.joueur.solde}\n👑 Luigi : {self.partie.luigi.solde}")
+        self.label_mise.config(text=f"💎 Mise : {self.mise}")
+        
+        # Réactiver les boutons
+        self.bouton_echanger.config(state=tk.NORMAL)
+        self.bouton_valider.config(state=tk.NORMAL)
+        self.bouton_plus.config(state=tk.NORMAL)
+        self.bouton_moins.config(state=tk.NORMAL)
 
     # ==========================================
     # Gestion mise
     # ==========================================
     def augmenter_mise(self):
-        if self.mise + 10 <= self.partie.joueur.solde and self.mise + 10 <= self.mise_max:
-            self.mise += 10
-            self.label_mise.config(text=f"💰 Mise : {self.mise}")
+        if self.echange_effectue:
+            messagebox.showwarning("Attention", "La mise ne peut être changée qu'au début de la manche.")
+            return
+        
+        nouvelle_mise = self.mise + 10
+        if nouvelle_mise <= self.partie.joueur.solde and nouvelle_mise <= self.mise_max:
+            self.mise = nouvelle_mise
+            self.label_mise.config(text=f"💎 Mise : {self.mise}")
+        elif nouvelle_mise > self.mise_max:
+            messagebox.showwarning("Mise Max", f"La mise maximum est de {self.mise_max}.")
+        else:
+            messagebox.showwarning("Solde", "Tu n'as pas assez de pièces pour cette mise.")
 
     def diminuer_mise(self):
+        if self.echange_effectue:
+            messagebox.showwarning("Attention", "La mise ne peut être changée qu'au début de la manche.")
+            return
+            
         if self.mise - 10 >= 10:
             self.mise -= 10
-            self.label_mise.config(text=f"💰 Mise : {self.mise}")
+            self.label_mise.config(text=f"💎 Mise : {self.mise}")
+        else:
+            messagebox.showwarning("Mise Min", "La mise minimum est de 10.")
 
 # ==========================================
 # Programme principal
 # ==========================================
 if __name__ == "__main__":
     root = tk.Tk()
-    # icône (modifie le chemin si nécessaire)
     ico_path = os.path.join(dossier_script, "images", "ico.ico")
     if os.path.exists(ico_path):
         try:
