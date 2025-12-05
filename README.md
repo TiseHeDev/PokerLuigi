@@ -5,8 +5,7 @@ Langage : Python 3.x
 1. Vue d'ensemble
 Ce projet est une implémentation graphique du jeu de Poker (variante simplifiée "5-card draw"). Il permet à un utilisateur de jouer seul contre une IA ("Luigi") ou contre un autre joueur humain via un réseau local (LAN). L'application gère la persistance des crédits (économie du jeu), les effets sonores et une interface utilisateur moderne.
 
-Shutterstock
-Explorer
+
 
 2. Stack Technique et Librairies
 Le projet repose sur plusieurs bibliothèques standard et externes pour gérer les différents aspects du jeu :
@@ -36,7 +35,6 @@ MainJoueur : Contient les cartes d'un joueur.
 Méthode clé : evaluer_main(). Cette méthode analyse la main pour détecter les combinaisons (Paire, Brelan, Carré, Quinte Flush, etc.). Elle retourne un score hiérarchique permettant de comparer deux mains.
 
 
-Getty Images
 B. Gestion Réseau (NetworkManager)
 Cette classe encapsule toute la complexité des sockets TCP.
 
@@ -78,14 +76,6 @@ START : L'hôte génère le paquet, distribue une main au client et lance la par
 HAND : Les joueurs envoient leur main finale cryptée (objet sérialisé).
 
 Comparaison locale : Une fois les deux mains reçues, chaque client exécute la comparaison localement pour déterminer le vainqueur.
-
-5. Instructions d'installation et d'exécution
-Prérequis :
-
-Bash
-
-pip install pillow pygame
-Démarrage : Lancer le fichier principal. Un menu "Launcher" s'ouvre :
 
 Solo : Jouer contre l'ordinateur.
 
