@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Poker Luigi - LAN Edition (Compatible EXE)
+Poker Luigi - LAN Edition (Correctif Paquet Vide)
 Solo vs Luigi OU Multijoueur en réseau local.
 """
 
@@ -50,6 +50,7 @@ try:
 except Exception as e:
     print("Impossible d'initialiser pygame.mixer:", e)
 
+SON_DSI = os.path.join(dossier_sons, "dsi.wav")
 SON_VICTOIRE = os.path.join(dossier_sons, "victoire.wav")
 SON_DEFAITE = os.path.join(dossier_sons, "defaite.wav")
 SON_EGALITE = os.path.join(dossier_sons, "egalite.wav")
@@ -113,21 +114,42 @@ class Carte:
 
 class JeuDeCartes:
     def __init__(self):
+        # Initialisation : on crée le paquet
+        self.reinitialiser()
+
+    def reinitialiser(self):
+        """Reconstruit un paquet neuf de 32 cartes et mélange."""
         self.cartes = [Carte(v, c) for v in Carte.valeurs for c in Carte.couleurs]
         self.melanger()
-    def melanger(self): random.shuffle(self.cartes)
-    def piocher(self): return self.cartes.pop() if self.cartes else None
+
+    def melanger(self): 
+        random.shuffle(self.cartes)
+
+    def piocher(self): 
+        return self.cartes.pop() if self.cartes else None
 
 class MainJoueur:
     def __init__(self): self.cartes = []
-    def ajouter(self, carte): self.cartes.append(carte)
+    def ajouter(self, carte): 
+        if carte is not None:
+            self.cartes.append(carte)
+
     def evaluer_main(self):
+        # Protection contre main incomplète ou vide
+        if not self.cartes:
+            return (0, "Erreur (Main vide)", [])
+            
         valeurs = [c.valeur for c in self.cartes]
         couleurs = [c.couleur for c in self.cartes]
         nums = sorted([Carte.valeurs.index(v) for v in valeurs])
         unique_vals = len(set(valeurs))
         flush = len(set(couleurs)) == 1
-        straight = all(nums[i] + 1 == nums[i + 1] for i in range(4))
+        
+        # Check straight (suite)
+        straight = False
+        if len(nums) >= 5: # Besoin de 5 cartes pour une suite
+             straight = all(nums[i] + 1 == nums[i + 1] for i in range(4))
+
         counts = {v: valeurs.count(v) for v in set(valeurs)}
         tri_counts = sorted(counts.items(), key=lambda x: (x[1], Carte.valeurs.index(x[0])), reverse=True)
         ordre_valeurs = [Carte.valeurs.index(v) for v, _ in tri_counts]
@@ -309,22 +331,30 @@ class PokerAppModern:
             self.luigi = Joueur("Adversaire", sl)
         
         def distribuer(self):
+            # CORRECTION : On réinitialise le paquet à chaque manche !
+            self.jeu.reinitialiser()
+            
             self.joueur.main.cartes = []
             self.luigi.main.cartes = []
-            self.jeu.melanger()
+            
             for _ in range(5):
                 self.joueur.main.ajouter(self.jeu.piocher())
                 self.luigi.main.ajouter(self.jeu.piocher())
 
         def echanger_cartes(self, indices):
             for i in indices:
-                self.joueur.main.cartes[i] = self.jeu.piocher()
+                nouvelle_carte = self.jeu.piocher()
+                if nouvelle_carte:
+                    self.joueur.main.cartes[i] = nouvelle_carte
         
         def tour_luigi(self): # Mode Solo IA
             score, _, _ = self.luigi.main.evaluer_main()
             if score < 4:
                 indices = sorted(range(5), key=lambda i: self.luigi.main.cartes[i].valeur_num())[:3]
-                for i in indices: self.luigi.main.cartes[i] = self.jeu.piocher()
+                for i in indices: 
+                    nouvelle = self.jeu.piocher()
+                    if nouvelle:
+                        self.luigi.main.cartes[i] = nouvelle
 
     # --------------------
     # UI Construction
@@ -400,12 +430,15 @@ class PokerAppModern:
         self.label_solde.pack(anchor="e")
 
     def _charger_images_cartes(self):
+        # Debug console
+        print(f"Chargement images depuis : {dossier_images}")
         mapping = {'7': '7.png', '8': '8.png', '9': '9.png', '10': '10.png',
                    'Valet': 'champi.png', 'Dame': 'fleur.png', 'Roi': 'mario.png', 'As': 'etoile.png'}
         self.images_cartes = {}
         self.card_w, self.card_h = 120, 160
         
-        def process_img(path):
+        def process_img(filename):
+            path = os.path.join(dossier_images, filename)
             try:
                 img = Image.open(path).convert("RGBA").resize((self.card_w, self.card_h), Image.LANCZOS)
                 mask = Image.new("L", img.size, 0)
@@ -413,25 +446,28 @@ class PokerAppModern:
                 draw.rounded_rectangle((0,0,img.width,img.height), radius=self.CARD_RADIUS, fill=255)
                 img.putalpha(mask)
                 return ImageTk.PhotoImage(img)
-            except: return None
+            except Exception as e: 
+                print(f"Erreur image {filename}: {e}")
+                return None
 
         for val, fname in mapping.items():
-            path = os.path.join(dossier_images, fname)
-            if os.path.exists(path): self.images_cartes[val] = process_img(path)
-            else: self.images_cartes[val] = None
+            self.images_cartes[val] = process_img(fname)
         
         path_dos = os.path.join(dossier_images, "dos.png")
-        self.images_dos = process_img(path_dos) if os.path.exists(path_dos) else None
+        self.images_dos = process_img("dos.png")
 
     # --------------------
     # Affichage
     # --------------------
     def afficher_cartes_joueur(self):
         for w in self.frame_joueur_cartes.winfo_children(): w.destroy()
-        while len(self.partie.joueur.main.cartes) < 5:
-            self.partie.joueur.main.ajouter(self.partie.jeu.piocher())
-
+        
+        # Sécurité : Si le paquet est vide ou main incomplète, on ne force pas (pour éviter boucle infinie)
+        # La correction principale est dans reinitialiser(), ici c'est du display
+        
         for i, c in enumerate(self.partie.joueur.main.cartes):
+            if not c: continue # Skip si None
+            
             imgtk = self.images_cartes.get(c.valeur)
             frame = tk.Frame(self.frame_joueur_cartes, bg=self.PANEL, padx=6, pady=6)
             frame.grid(row=0, column=i, padx=8)
@@ -471,6 +507,7 @@ class PokerAppModern:
         main_adv = self.lan_opponent_hand.cartes if self.mode == "lan" else self.partie.luigi.main.cartes
         
         for i, c in enumerate(main_adv):
+            if not c: continue
             frame = tk.Frame(self.frame_luigi_cartes, bg=self.PANEL, padx=6, pady=6)
             frame.grid(row=0, column=i, padx=8)
             imgtk = self.images_cartes.get(c.valeur)
@@ -487,8 +524,9 @@ class PokerAppModern:
     # Logique Réseau (LAN)
     # --------------------
     def lan_host_start_round(self):
-        # L'hôte génère tout
-        self.partie.jeu.melanger()
+        # CORRECTION : L'hôte réinitialise le paquet avant de distribuer !
+        self.partie.jeu.reinitialiser()
+        
         hand_host = [self.partie.jeu.piocher() for _ in range(5)]
         hand_client = [self.partie.jeu.piocher() for _ in range(5)]
         
@@ -681,6 +719,7 @@ class StartMenu:
         self.root.geometry("600x450")
         self.root.configure(bg="#0f1720")
         
+        jouer_son(SON_DSI)
         tk.Label(root, text="POKER LUIGI", font=("Segoe UI", 30, "bold"), fg="#FFB86B", bg="#0f1720").pack(pady=(50, 10))
         tk.Label(root, text="Choisis ton mode de jeu", font=("Segoe UI", 12), fg="white", bg="#0f1720").pack(pady=(0, 40))
 
