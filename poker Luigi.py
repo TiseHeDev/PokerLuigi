@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Poker Luigi - LAN Edition (Fix TCP & Sync)
-Solo vs Luigi OU Multijoueur en réseau local.
+Poker Luigi - LAN Edition (FINAL STABLE V2)
+Correctifs : Hôte bloqué, Spam bouton valider, Synchro TCP.
 """
 
 import tkinter as tk
@@ -16,7 +16,7 @@ import threading
 import socket
 import pickle
 import time
-import struct  # <--- IMPORTANT POUR LE RESEAU
+import struct
 
 # ------------------------
 # Fonction magique pour le chemin des ressources (.exe)
@@ -159,7 +159,7 @@ class NetworkManager:
     def __init__(self, is_host, ip=None, port=5555):
         self.is_host = is_host
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # Réduit la latence
+        self.client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.addr = (ip, port) if ip else ('0.0.0.0', port)
         self.conn = None
         self.running = True
@@ -191,7 +191,6 @@ class NetworkManager:
         try:
             if self.conn:
                 serialized = pickle.dumps(data)
-                # On pack la taille du message (entier non signé 'I') suivi du message
                 message = struct.pack('>I', len(serialized)) + serialized
                 self.conn.sendall(message)
         except Exception as e:
@@ -213,17 +212,11 @@ class NetworkManager:
         while self.running:
             try:
                 if self.conn:
-                    # 1. Lire la taille du message (4 octets)
                     raw_msglen = self._recv_all(4)
                     if not raw_msglen: break
-                    
                     msglen = struct.unpack('>I', raw_msglen)[0]
-                    
-                    # 2. Lire le message complet
                     data = self._recv_all(msglen)
                     if not data: break
-                    
-                    # 3. Désérialiser
                     obj = pickle.loads(data)
                     callback(obj)
             except Exception as e:
@@ -487,10 +480,18 @@ class PokerAppModern:
                 p.pack()
 
     # --------------------
-    # LOGIQUE RESEAU
+    # LOGIQUE RESEAU CORRIGÉE
     # --------------------
     def lan_host_start_round(self):
         self.partie.jeu.reinitialiser()
+        
+        # --- CORRECTION : HOTE RESETTE SON ETAT ---
+        self.echange_effectue = False
+        self.lan_my_hand_sent = False
+        self.lan_opponent_hand = None
+        self.selection.clear()
+        # -------------------------------------------
+        
         hand_host = [self.partie.jeu.piocher() for _ in range(5)]
         hand_client = [self.partie.jeu.piocher() for _ in range(5)]
         
@@ -516,9 +517,13 @@ class PokerAppModern:
             self.masquer_cartes_adversaire()
             self._set_buttons_state(True)
             self.label_status.config(text="C'est parti !")
+            
+            # --- CORRECTION : CLIENT RESETTE SON ETAT ---
             self.echange_effectue = False
             self.lan_opponent_hand = None
             self.lan_my_hand_sent = False
+            self.selection.clear()
+            # --------------------------------------------
         
         elif msg_type == "HAND":
             self.lan_opponent_hand = MainJoueur()
@@ -586,6 +591,10 @@ class PokerAppModern:
         self.label_status.config(text="Valide pour finir.")
 
     def valider(self):
+        # --- CORRECTION : ANTI-SPAM ET SECURITE ETAT ---
+        if self.mode == "lan" and self.lan_my_hand_sent:
+            return # Empêche de valider deux fois si déjà envoyé
+        
         self._set_buttons_state(False)
         if not self.echange_effectue: self.echange_effectue = True
 
