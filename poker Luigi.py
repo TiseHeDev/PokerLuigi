@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Poker Luigi - LAN Edition (FINAL STABLE V2)
-Correctifs : Hôte bloqué, Spam bouton valider, Synchro TCP.
+Poker Luigi - LAN Edition (FINAL V3 - Game Over)
+Ajout : Condition de victoire/défaite à 0 crédits.
 """
 
 import tkinter as tk
@@ -485,12 +485,11 @@ class PokerAppModern:
     def lan_host_start_round(self):
         self.partie.jeu.reinitialiser()
         
-        # --- CORRECTION : HOTE RESETTE SON ETAT ---
+        # --- RESET ETAT ---
         self.echange_effectue = False
         self.lan_my_hand_sent = False
         self.lan_opponent_hand = None
         self.selection.clear()
-        # -------------------------------------------
         
         hand_host = [self.partie.jeu.piocher() for _ in range(5)]
         hand_client = [self.partie.jeu.piocher() for _ in range(5)]
@@ -518,12 +517,11 @@ class PokerAppModern:
             self._set_buttons_state(True)
             self.label_status.config(text="C'est parti !")
             
-            # --- CORRECTION : CLIENT RESETTE SON ETAT ---
+            # --- RESET ETAT CLIENT ---
             self.echange_effectue = False
             self.lan_opponent_hand = None
             self.lan_my_hand_sent = False
             self.selection.clear()
-            # --------------------------------------------
         
         elif msg_type == "HAND":
             self.lan_opponent_hand = MainJoueur()
@@ -569,8 +567,26 @@ class PokerAppModern:
         self.label_solde.config(text=f"Toi: {self.partie.joueur.solde} | Adv: {self.partie.luigi.solde}")
         sauvegarder_solde(self.partie.joueur.solde, self.partie.luigi.solde)
 
+        # CHECK GAME OVER
+        if self.verifier_fin_partie():
+            return
+
         if self.network.is_host:
             self.root.after(4000, self.lan_host_start_round)
+
+    def verifier_fin_partie(self):
+        """Vérifie si un des joueurs est à 0 et termine la partie"""
+        if self.partie.joueur.solde <= 0:
+            jouer_son(SON_DEFAITE)
+            messagebox.showinfo("GAME OVER", "Tu n'as plus de crédits ! L'adversaire t'a plumé.")
+            self.root.destroy()
+            return True
+        elif self.partie.luigi.solde <= 0:
+            jouer_son(SON_VICTOIRE)
+            messagebox.showinfo("VICTOIRE", "L'adversaire est ruiné ! Tu as gagné.")
+            self.root.destroy()
+            return True
+        return False
 
     def toggle_selection(self, i):
         if self.echange_effectue: return
@@ -591,9 +607,9 @@ class PokerAppModern:
         self.label_status.config(text="Valide pour finir.")
 
     def valider(self):
-        # --- CORRECTION : ANTI-SPAM ET SECURITE ETAT ---
+        # --- SECURITY CHECK ---
         if self.mode == "lan" and self.lan_my_hand_sent:
-            return # Empêche de valider deux fois si déjà envoyé
+            return 
         
         self._set_buttons_state(False)
         if not self.echange_effectue: self.echange_effectue = True
@@ -622,7 +638,10 @@ class PokerAppModern:
             self.label_status.config(text=res)
             self.label_solde.config(text=f"Toi: {self.partie.joueur.solde} | Adv: {self.partie.luigi.solde}")
             sauvegarder_solde(self.partie.joueur.solde, self.partie.luigi.solde)
-            self.root.after(3000, self.nouvelle_manche_solo)
+            
+            # Check fin partie solo
+            if not self.verifier_fin_partie():
+                self.root.after(3000, self.nouvelle_manche_solo)
 
         elif self.mode == "lan":
             msg = {"type": "HAND", "hand_obj": self.partie.joueur.main.cartes}
